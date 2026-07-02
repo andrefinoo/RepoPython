@@ -13,6 +13,16 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 IPAddress = IPv4Address | IPv6Address
 
 
+def is_valid_ip(candidate: str) -> bool:
+    """Return True only if candidate is a valid IPv4 or IPv6 address."""
+
+    try:
+        ip_address(candidate)
+    except ValueError:
+        return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class LoginAttempt:
     """Represents a failed login attempt parsed from an authentication log.
@@ -25,9 +35,17 @@ class LoginAttempt:
     """
 
     timestamp: datetime
-    ip: IPAddress
+    ip: str | IPAddress
     username: str | None = None
     original_line: str = ""
+
+    def __post_init__(self) -> None:
+        """Validate the IP address even when the normal constructor is used."""
+
+        try:
+            ip_address(str(self.ip))
+        except ValueError as exc:
+            raise ValueError(f"Invalid IP address: {self.ip}") from exc
 
     @classmethod
     def create(
@@ -75,13 +93,30 @@ class BanDecision:
     Firewall backends will later consume this decision without changing domain logic.
     """
 
-    ip: IPAddress
+    ip: str | IPAddress
     attempts_count: int
     threshold: int
     first_attempt_at: datetime
     last_attempt_at: datetime
     reason: str
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def __post_init__(self) -> None:
+        """Validate basic business rules even when the normal constructor is used."""
+
+        try:
+            ip_address(str(self.ip))
+        except ValueError as exc:
+            raise ValueError(f"Invalid IP address: {self.ip}") from exc
+
+        if self.attempts_count < 1:
+            raise ValueError("attempts_count must be greater than zero")
+        if self.threshold < 1:
+            raise ValueError("threshold must be greater than zero")
+        if self.attempts_count < self.threshold:
+            raise ValueError("attempts_count must be greater than or equal to threshold")
+        if self.first_attempt_at > self.last_attempt_at:
+            raise ValueError("first_attempt_at cannot be after last_attempt_at")
 
     @classmethod
     def create(
@@ -95,15 +130,6 @@ class BanDecision:
         reason: str | None = None,
     ) -> "BanDecision":
         """Create a BanDecision validating business values and the IP address."""
-
-        if attempts_count < 1:
-            raise ValueError("attempts_count must be greater than zero")
-        if threshold < 1:
-            raise ValueError("threshold must be greater than zero")
-        if attempts_count < threshold:
-            raise ValueError("attempts_count must be greater than or equal to threshold")
-        if first_attempt_at > last_attempt_at:
-            raise ValueError("first_attempt_at cannot be after last_attempt_at")
 
         parsed_ip = ip if isinstance(ip, (IPv4Address, IPv6Address)) else ip_address(ip)
         decision_reason = reason or (
@@ -125,13 +151,3 @@ class BanDecision:
         """Return the IP address as a normalized string."""
 
         return str(self.ip)
-
-
-def is_valid_ip(candidate: str) -> bool:
-    """Return True only if candidate is a valid IPv4 or IPv6 address."""
-
-    try:
-        ip_address(candidate)
-    except ValueError:
-        return False
-    return True
