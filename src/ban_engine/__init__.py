@@ -1,1 +1,1 @@
-__version__ = "0.1.0"
+"""Automated Incident Response Ban Engine."""
